@@ -7,12 +7,13 @@ from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
+import numpy as np
 from transformers.cache_utils import QuantizedCache
 
 from kvpress.presses.adakv_press import AdaKVPress
 from kvpress.presses.base_press import BasePress
 from kvpress.presses.scorer_press import ScorerPress
-from kvpress.utils import extract_keys_and_values
+from kvpress.utils import extract_keys_values_and_ages
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,8 @@ class DecodingPress(BasePress):
     target_size: int = 2048
     hidden_states_buffer_size: int = 256
 
+    compress_steps: int = 0
+
     def __post_init__(self):
         # Buffer to store hidden states during decoding (per layer)
         assert isinstance(self.base_press, (ScorerPress, AdaKVPress)), "DecodingPress requires a ScorerPress as input"
@@ -52,13 +55,8 @@ class DecodingPress(BasePress):
         self.layer_step_counts = defaultdict(int)  # Track step count per layer
 
         assert self.compression_interval > 0, "compression_interval must be greater than 0"
-        assert self.target_size > 0, "target_size must be greater than 0"
+        #assert self.target_size > 0, "target_size must be greater than 0"
 
-        if self.base_press.compression_ratio:
-            logger.warning(
-                f"compression_ratio is set for base press ({self.base_press.compression_ratio}). "
-                f"This will be overridden by the decoding press."
-            )
 
     def post_init_from_model(self, model):
         self.base_press.post_init_from_model(model)
@@ -69,6 +67,10 @@ class DecodingPress(BasePress):
         hidden_states: torch.Tensor,
         keys: torch.Tensor,
         values: torch.Tensor,
+        ages: torch.Tensor,
+        migrated: torch.Tensor,
+        health: torch.Tensor,
+
         attentions: torch.Tensor,
         kwargs: dict,
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -97,13 +99,22 @@ class DecodingPress(BasePress):
             It would be possible to speed up compression during decoding for certain scorer presses by
             storing existing scores in a buffer (e.g. KNormPress) and reusing them in subsequent compressions.
         """
+        self.compress_steps+=1
         k_len = keys.shape[2]
-        target_compression_ratio = self._find_target_compression_ratio(k_len, self.target_size)
-        logger.debug(f"Compressing {k_len} to {self.target_size} with ratio {target_compression_ratio}")
+
+
+        # the amount you want to compress is step_size*ratio/total
+
+
+        target_compression_ratio = self.compression_interval * self.base_press.compression_ratio / k_len
+        
+        #logger.debug(f"Compressing {k_len} to {self.target_size} with ratio {target_compression_ratio}")
 
         original_compression_ratio = self.base_press.compression_ratio
         self.base_press.compression_ratio = target_compression_ratio
-        result = self.base_press.compress(module, hidden_states, keys, values, attentions, kwargs)
+
+        result = self.base_press.compress(module, hidden_states, keys, values, ages, migrated, health, attentions, kwargs)
+
         self.base_press.compression_ratio = original_compression_ratio
         return result
 
@@ -140,14 +151,14 @@ class DecodingPress(BasePress):
             )
 
             cache_layer = cache.layers[module.layer_idx]
-            keys, values = extract_keys_and_values(cache, module.layer_idx)
+            keys, values, ages, migrated, health = extract_keys_values_and_ages(cache, module.layer_idx)
 
             # Get attention weights from output
             attentions = output[1] if len(output) > 1 and output[1] is not None else None
 
             # Apply compression using buffered hidden states for this layer
             buffered_hidden_states = torch.cat(self.hidden_states_buffer[layer_idx], dim=1)
-            keys, values = self.compress(module, buffered_hidden_states, keys, values, attentions, kwargs)
+            keys, values, ages, migrated, health = self.compress(module, buffered_hidden_states, keys, values, ages, migrated, health, attentions, kwargs)
             logger.debug(f"Applied decoding compression: " f"keys.shape: {keys.shape}, values.shape: {values.shape}")
 
             # Update cache with compressed keys and values
@@ -160,6 +171,9 @@ class DecodingPress(BasePress):
             else:
                 cache_layer.keys = keys
                 cache_layer.values = values
+                cache_layer.ages = ages
+                cache_layer.migrated = migrated
+                cache_layer.health = health
 
             # Reset step count and clear buffer for this layer
             self.layer_step_counts[layer_idx] = 0
@@ -222,3 +236,16 @@ class DecodingPress(BasePress):
             )
 
         return ratio
+
+    def final_ages(self, cache):
+
+        remaining_ages = []
+
+        for layer in cache.layers:
+            ages = layer.ages
+            remaining_ages.extend(self.base_press.final_ages(ages))
+
+        return np.array(remaining_ages)
+
+
+

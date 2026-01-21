@@ -14,7 +14,7 @@ from transformers import AutoTokenizer, Gemma3PreTrainedModel, PreTrainedModel, 
 from transformers.models.llama.modeling_llama import rotate_half
 
 from kvpress.presses.base_press import SUPPORTED_MODELS, BasePress
-from kvpress.utils import extract_keys_and_values, get_prerope_query_states
+from kvpress.utils import extract_keys_values_and_ages, get_prerope_query_states
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +153,7 @@ class KVzipPress(BasePress):
         cache = kwargs.get("past_key_values", None) or kwargs.get("past_key_value", None)
         cache_layer = cache.layers[module.layer_idx]
 
-        keys, values = extract_keys_and_values(cache, module.layer_idx)
+        keys, values = extract_keys_values_and_ages(cache, module.layer_idx)
 
         # Compute importance scores for KV pairs in the prefilled context,
         # retaining only the originally prefilled KV pairs.

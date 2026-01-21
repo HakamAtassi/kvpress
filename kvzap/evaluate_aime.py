@@ -32,7 +32,7 @@ def calculate_metrics(df):
 
 
 def evaluate(
-    kvzap_model_type: str,
+    kvzap_model_type: str = "mlp",
     threshold: float = 0.0,
     model_name: str = "Qwen/Qwen3-8B",
     device: str = "cuda:0",
@@ -111,4 +111,5 @@ def evaluate(
 if __name__ == "__main__":
     import fire
 
-    fire.Fire(evaluate)
+    #fire.Fire(evaluate)
+    evaluate()

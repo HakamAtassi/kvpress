@@ -29,7 +29,7 @@ class RandomPress(ScorerPress):
 
     compression_ratio: float = 0.0
     seed: Optional[int] = None
-
+    
     def score(
         self,
         module: nn.Module,

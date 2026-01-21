@@ -91,7 +91,7 @@ class KVPressTextGenerationPipeline(Pipeline):
         assert question is None or questions is None, "Either question or questions should be provided, not both."
         questions = questions or ([question] if question else [""])
         if max_context_length is None:
-            max_context_length = min(self.tokenizer.model_max_length, int(1e10))  # 1e10 to avoid overflow
+            max_context_length = min(1024*4, int(1e10))  # 1e10 to avoid overflow
         preprocess_kwargs = {
             "questions": questions,
             "answer_prefix": answer_prefix,

@@ -21,6 +21,8 @@ class KVzapConfig(PretrainedConfig):
 
 class KVzapModel(PreTrainedModel):
     config_class = KVzapConfig  # type: ignore[assignment]
+    all_tied_weights_keys = {}
+
 
     def __init__(self, config):
         super().__init__(config)
@@ -63,6 +65,7 @@ class KVzapPress(ScorerPress):
             self.kvzap_model_name = kvzap_model_name
             self.kvzap_model = KVzapModel.from_pretrained(self.kvzap_model_name)
 
+
     def score(
         self,
         module: nn.Module,
@@ -74,6 +77,9 @@ class KVzapPress(ScorerPress):
     ) -> torch.Tensor:
         module = self.kvzap_model.layers[module.layer_idx]
         module = module.to(hidden_states.device, dtype=hidden_states.dtype).eval()
+
+
+
         with torch.no_grad():
             scores = module(hidden_states).transpose(1, 2)
         return scores

@@ -101,7 +101,7 @@ def dequantize_layer(cache_layer) -> tuple[torch.Tensor, torch.Tensor]:
     return keys, values
 
 
-def extract_keys_and_values(cache: Cache, layer_idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+def extract_keys_values_and_ages(cache: Cache, layer_idx: int) -> tuple[torch.Tensor, ...]:
     """
     Extracts the keys and values from a given cache layer,
     handling both quantized and unquantized caches.
@@ -111,4 +111,7 @@ def extract_keys_and_values(cache: Cache, layer_idx: int) -> tuple[torch.Tensor,
     else:
         keys = cache.layers[layer_idx].keys
         values = cache.layers[layer_idx].values
-    return keys, values
+        ages = cache.layers[layer_idx].ages
+        migrated = cache.layers[layer_idx].migrated
+        health = cache.layers[layer_idx].health
+    return keys, values, ages, migrated, health

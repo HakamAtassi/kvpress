@@ -20,7 +20,7 @@ from transformers import (
     Qwen3ForCausalLM,
 )
 
-from kvpress.utils import extract_keys_and_values
+from kvpress.utils import extract_keys_values_and_ages
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,9 @@ class BasePress:
         hidden_states: torch.Tensor,
         keys: torch.Tensor,
         values: torch.Tensor,
+        migrated: torch.Tensor,
+        health: torch.Tensor,
+
         attentions: torch.Tensor,
         kwargs: dict,
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -91,6 +94,10 @@ class BasePress:
         """
 
         raise NotImplementedError("compress method must be implemented in subclass")
+
+
+    def migrate(self, keys, values, ages, migrated):
+        raise NotImplementedError("migrate method must be implemented in subclass")
 
     def forward_hook(self, module: nn.Module, input: list[torch.Tensor], kwargs: dict, output: list):
         """
@@ -139,9 +146,9 @@ class BasePress:
         if kwargs["cache_position"][-1] > q_len:
             return output
 
-        keys, values = extract_keys_and_values(cache, module.layer_idx)
+        keys, values, ages, migrated, health = extract_keys_values_and_ages(cache, module.layer_idx)
 
-        keys, values = self.compress(module, hidden_states, keys, values, output[1], kwargs)
+        keys, values, ages, migrated, health = self.compress(module, hidden_states, keys, values, ages, migrated, health, output[1], kwargs)
 
         if isinstance(cache, QuantizedCache):
             cache_layer._quantized_keys = cache_layer._quantize(keys, axis=cache_layer.axis_key)
@@ -152,6 +159,9 @@ class BasePress:
         else:
             cache_layer.keys = keys
             cache_layer.values = values
+            cache_layer.ages = ages
+            cache_layer.migrated = migrated
+            cache_layer.health = health
 
         return output
 

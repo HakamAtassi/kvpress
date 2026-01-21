@@ -9,7 +9,7 @@ import torch.nn as nn
 
 from kvpress.presses.base_press import BasePress
 from kvpress.presses.scorer_press import ScorerPress
-from kvpress.utils import extract_keys_and_values
+from kvpress.utils import extract_keys_values_and_ages
 
 
 @dataclass
@@ -40,7 +40,7 @@ class ThresholdPress(BasePress):
         If False, compression only occurs during prefill.
     """
 
-    press: ScorerPress
+    base_press: ScorerPress
     threshold: Optional[float] = None
     sliding_window_size: int = 128
     decoding: bool = False
@@ -48,7 +48,7 @@ class ThresholdPress(BasePress):
     compression_ratios: dict[int, float] = field(default_factory=dict, init=False, repr=False)
 
     def post_init_from_model(self, model):
-        self.press.post_init_from_model(model)
+        self.base_press.post_init_from_model(model)
 
     @property
     def compression_ratio(self):
@@ -71,24 +71,41 @@ class ThresholdPress(BasePress):
         # Extract layer index as int for type safety
         layer_idx: int = module.layer_idx  # type: ignore[assignment]
 
+
+
+
+
         # Reset the scores buffer and compression ratios if we are in prefilling
         if prefilling and (layer_idx == 0):
             self.scores_buffer.clear()
             self.compression_ratios.clear()
 
+
+
+
+
         # Skip compression during decoding if not enabled
         if not prefilling and not self.decoding:
             return output
 
+
+
+
         # Compute importance scores for the new tokens using the underlying scorer press
-        keys, values = extract_keys_and_values(cache, layer_idx)
-        scores = self.press.score(module, hidden_states, keys[:, :, -q_len:], values[:, :, -q_len:], None, kwargs)
+        keys, values, ages = extract_keys_values_and_ages(cache, layer_idx)
+        scores = self.base_press.score(module, hidden_states, keys[:, :, -q_len:], values[:, :, -q_len:], None, kwargs)
 
         # Accumulate scores in the buffer: reset during prefill, append during decoding
         if prefilling:
             self.scores_buffer[layer_idx] = scores
         else:
             self.scores_buffer[layer_idx] = torch.cat([self.scores_buffer[layer_idx], scores], dim=-1)
+
+
+
+
+
+
 
         # Once the buffer exceeds the sliding window, evict tokens with low scores
         if self.scores_buffer[layer_idx].shape[-1] > self.sliding_window_size:
@@ -113,6 +130,10 @@ class ThresholdPress(BasePress):
                     module.masked_key_indices = list(  # type: ignore[assignment]
                         torch.cat([i, new_i]) for i, new_i in zip(module.masked_key_indices, new_masked_key_indices)
                     )
+
+
+
+
 
         # Track compression ratio as the fraction of masked tokens
         if module.masked_key_indices is not None:
